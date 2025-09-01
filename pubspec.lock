@@ -168,30 +168,22 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  get:
+  google_mlkit_commons:
     dependency: "direct main"
     description:
-      name: get
-      sha256: c79eeb4339f1f3deffd9ec912f8a923834bec55f7b49c9e882b8fef2c139d425
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.7.2"
-  google_mlkit_commons:
-    dependency: transitive
-    description:
       name: google_mlkit_commons
-      sha256: "8f40fbac10685cad4715d11e6a0d86837d9ad7168684dfcad29610282a88e67a"
+      sha256: "046586b381cdd139f7f6a05ad6998f7e339d061bd70158249907358394b5f496"
       url: "https://pub.dev"
     source: hosted
-    version: "0.11.0"
+    version: "0.6.1"
   google_mlkit_face_detection:
     dependency: "direct main"
     description:
       name: google_mlkit_face_detection
-      sha256: f336737d5b8a86797fd4368f42a5c26aeaa9c6dcc5243f0a16b5f6f663cfb70a
+      sha256: a6ccff7d6ca8dfc2ab845ea7481645342e82aed31a81edd075169a3abbb25ed3
       url: "https://pub.dev"
     source: hosted
-    version: "0.13.1"
+    version: "0.9.0"
   image:
     dependency: transitive
     description:

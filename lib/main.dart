@@ -1,8 +1,10 @@
+import 'package:face_recognition/screens/dashboard_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:get/get.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
   runApp(const MyApp());
 }
 
@@ -12,19 +14,14 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ScreenUtilInit(
-      designSize: const Size(375, 812), // iPhone X reference
+      designSize: const Size(375, 812),
       minTextAdapt: true,
       splitScreenMode: true,
       builder: (context, child) {
-        return GetMaterialApp(
+        return MaterialApp(
           title: 'Face Recognition Prototype',
           debugShowCheckedModeBanner: false,
-          home: Scaffold(
-            appBar: AppBar(title: const Text("Face Recognition Prototype")),
-            body: Center(
-              child: Text("Hyy", style: TextStyle(fontSize: 20.sp)),
-            ),
-          ),
+          home: const DashboardScreen(),
         );
       },
     );
