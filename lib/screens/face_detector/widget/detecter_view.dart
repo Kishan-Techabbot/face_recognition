@@ -6,8 +6,8 @@ import 'package:google_mlkit_commons/google_mlkit_commons.dart';
 enum DetectorViewMode { liveFeed, gallery }
 
 class DetectorView extends StatefulWidget {
-  DetectorView({
-    Key? key,
+  const DetectorView({
+    super.key,
     required this.title,
     required this.onImage,
     this.customPaint,
@@ -17,7 +17,7 @@ class DetectorView extends StatefulWidget {
     this.onCameraFeedReady,
     this.onDetectorViewModeChanged,
     this.onCameraLensDirectionChanged,
-  }) : super(key: key);
+  });
 
   final String title;
   final CustomPaint? customPaint;
@@ -44,13 +44,42 @@ class _DetectorViewState extends State<DetectorView> {
 
   @override
   Widget build(BuildContext context) {
-    return CameraView(
-      customPaint: widget.customPaint,
-      onImage: widget.onImage,
-      onCameraFeedReady: widget.onCameraFeedReady,
-      onDetectorViewModeChanged: _onDetectorViewModeChanged,
-      initialCameraLensDirection: widget.initialCameraLensDirection,
-      onCameraLensDirectionChanged: widget.onCameraLensDirectionChanged,
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.title)),
+      body: Stack(
+        children: [
+          CameraView(
+            customPaint: widget.customPaint,
+            onImage: widget.onImage,
+            onCameraFeedReady: widget.onCameraFeedReady,
+            onDetectorViewModeChanged: _onDetectorViewModeChanged,
+            initialCameraLensDirection: widget.initialCameraLensDirection,
+            onCameraLensDirectionChanged: widget.onCameraLensDirectionChanged,
+          ),
+          if (widget.text != null && widget.text!.isNotEmpty)
+            Positioned(
+              bottom: 100,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  widget.text!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

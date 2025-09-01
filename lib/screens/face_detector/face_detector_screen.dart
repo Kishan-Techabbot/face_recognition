@@ -1,25 +1,55 @@
 import 'package:camera/camera.dart';
 import 'package:face_recognition/screens/face_detector/widget/detecter_view.dart';
+import 'package:face_recognition/screens/helper/face_detection_helper.dart';
+
 import 'package:face_recognition/utils/face_detector_painter.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
-class FaceDetectorView extends StatefulWidget {
-  const FaceDetectorView({super.key});
+class FaceDetectorScreen extends StatefulWidget {
+  const FaceDetectorScreen({super.key});
 
   @override
-  State<FaceDetectorView> createState() => _FaceDetectorViewState();
+  State<FaceDetectorScreen> createState() => _FaceDetectorScreenState();
 }
 
-class _FaceDetectorViewState extends State<FaceDetectorView> {
+class _FaceDetectorScreenState extends State<FaceDetectorScreen> {
   final FaceDetector _faceDetector = FaceDetector(
-    options: FaceDetectorOptions(enableContours: true, enableLandmarks: true),
+    options: FaceDetectorOptions(enableContours: false, enableLandmarks: true),
   );
-  bool _canProcess = true;
+  final FaceRecognitionHelper _recognitionHelper =
+      FaceRecognitionHelper.instance;
+
   bool _isBusy = false;
+  bool _canProcess = true;
   CustomPaint? _customPaint;
   String? _text;
-  var _cameraLensDirection = CameraLensDirection.front;
+  CameraLensDirection _cameraLensDirection = CameraLensDirection.front;
+  final Map<int, String> _recognizedNames = {}; // Face index -> Name mapping
+  List<Face> _currentFaces = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeModel();
+  }
+
+  Future<void> _initializeModel() async {
+    try {
+      await _recognitionHelper.loadModel();
+      if (mounted) {
+        setState(() {
+          _text = "Model loaded. Ready to recognize faces!";
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _text = "Error loading model: $e";
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -31,7 +61,7 @@ class _FaceDetectorViewState extends State<FaceDetectorView> {
   @override
   Widget build(BuildContext context) {
     return DetectorView(
-      title: 'Face Detector',
+      title: 'Face Recognition',
       customPaint: _customPaint,
       text: _text,
       onImage: _processImage,
@@ -41,34 +71,68 @@ class _FaceDetectorViewState extends State<FaceDetectorView> {
   }
 
   Future<void> _processImage(InputImage inputImage) async {
-    if (!_canProcess) return;
-    if (_isBusy) return;
+    if (!_canProcess || _isBusy) return;
     _isBusy = true;
-    setState(() {
-      _text = '';
-    });
-    final faces = await _faceDetector.processImage(inputImage);
-    if (inputImage.metadata?.size != null &&
-        inputImage.metadata?.rotation != null) {
-      final painter = FaceDetectorPainter(
-        faces,
-        inputImage.metadata!.size,
-        inputImage.metadata!.rotation,
-        _cameraLensDirection,
-      );
-      _customPaint = CustomPaint(painter: painter);
-    } else {
-      String text = 'Faces found: ${faces.length}\n\n';
-      for (final face in faces) {
-        text += 'face: ${face.boundingBox}\n\n';
+
+    try {
+      final faces = await _faceDetector.processImage(inputImage);
+      _currentFaces = faces;
+      _recognizedNames.clear();
+
+      if (faces.isNotEmpty) {
+        String statusText = "Detected ${faces.length} face(s)\n";
+
+        // Process each face for recognition
+        for (int i = 0; i < faces.length; i++) {
+          final face = faces[i];
+          final embedding = await _recognitionHelper.getEmbedding(
+            inputImage,
+            face.boundingBox,
+          );
+          print("Emb: $embedding");
+
+          if (embedding != null) {
+            final recognizedName = await _recognitionHelper.recognizeUser(
+              embedding,
+            );
+            _recognizedNames[i] = recognizedName ?? "Unknown";
+
+            if (recognizedName != null && recognizedName != "Unknown") {
+              statusText += "✅ $recognizedName\n";
+            } else {
+              statusText += "❓ Unknown person\n";
+            }
+          } else {
+            _recognizedNames[i] = "Processing...";
+            statusText += "⏳ Processing...\n";
+          }
+        }
+
+        _text = statusText.trim();
+      } else {
+        _text = "No faces detected";
+        _recognizedNames.clear();
       }
-      _text = text;
-      // TODO: set _customPaint to draw boundingRect on top of image
-      _customPaint = null;
+
+      // Update custom paint with face bounding boxes and names
+      if (inputImage.metadata?.size != null &&
+          inputImage.metadata?.rotation != null) {
+        _customPaint = CustomPaint(
+          painter: FaceDetectorPainter(
+            _currentFaces,
+            inputImage.metadata!.size,
+            inputImage.metadata!.rotation,
+            _cameraLensDirection,
+            recognizedNames: _recognizedNames,
+          ),
+        );
+      }
+    } catch (e) {
+      _text = "Error processing image: $e";
+      print("FaceDetectorScreen Error: $e");
     }
+
     _isBusy = false;
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 }

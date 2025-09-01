@@ -42,7 +42,6 @@ class _CameraViewState extends State<CameraView> {
   @override
   void initState() {
     super.initState();
-
     _initialize();
   }
 
@@ -73,9 +72,9 @@ class _CameraViewState extends State<CameraView> {
   }
 
   Widget _liveFeedBody() {
-    if (_cameras.isEmpty) return Container();
-    if (_controller == null) return Container();
-    if (_controller?.value.isInitialized == false) return Container();
+    if (_cameras.isEmpty || _controller == null || !_controller!.value.isInitialized) {
+      return Container();
+    }
     return ColoredBox(
       color: Colors.black,
       child: Stack(
@@ -97,198 +96,199 @@ class _CameraViewState extends State<CameraView> {
   }
 
   Widget _backButton() => Positioned(
-    top: 40,
-    left: 8,
-    child: SizedBox(
-      height: 50.0,
-      width: 50.0,
-      child: FloatingActionButton(
-        heroTag: Object(),
-        onPressed: () => Navigator.of(context).pop(),
-        backgroundColor: Colors.black54,
-        child: Icon(Icons.arrow_back_ios_outlined, size: 20),
-      ),
-    ),
-  );
+        top: 40,
+        left: 8,
+        child: SizedBox(
+          height: 50.0,
+          width: 50.0,
+          child: FloatingActionButton(
+            heroTag: Object(),
+            onPressed: () => Navigator.of(context).pop(),
+            backgroundColor: Colors.black54,
+            child: Icon(Icons.arrow_back_ios_outlined, size: 20),
+          ),
+        ),
+      );
 
   Widget _detectionViewModeToggle() => Positioned(
-    bottom: 8,
-    left: 8,
-    child: SizedBox(
-      height: 50.0,
-      width: 50.0,
-      child: FloatingActionButton(
-        heroTag: Object(),
-        onPressed: widget.onDetectorViewModeChanged,
-        backgroundColor: Colors.black54,
-        child: Icon(Icons.photo_library_outlined, size: 25),
-      ),
-    ),
-  );
+        bottom: 8,
+        left: 8,
+        child: SizedBox(
+          height: 50.0,
+          width: 50.0,
+          child: FloatingActionButton(
+            heroTag: Object(),
+            onPressed: widget.onDetectorViewModeChanged,
+            backgroundColor: Colors.black54,
+            child: Icon(Icons.photo_library_outlined, size: 25),
+          ),
+        ),
+      );
 
   Widget _switchLiveCameraToggle() => Positioned(
-    bottom: 8,
-    right: 8,
-    child: SizedBox(
-      height: 50.0,
-      width: 50.0,
-      child: FloatingActionButton(
-        heroTag: Object(),
-        onPressed: _switchLiveCamera,
-        backgroundColor: Colors.black54,
-        child: Icon(
-          Platform.isIOS
-              ? Icons.flip_camera_ios_outlined
-              : Icons.flip_camera_android_outlined,
-          size: 25,
+        bottom: 8,
+        right: 8,
+        child: SizedBox(
+          height: 50.0,
+          width: 50.0,
+          child: FloatingActionButton(
+            heroTag: Object(),
+            onPressed: _switchLiveCamera,
+            backgroundColor: Colors.black54,
+            child: Icon(
+              Platform.isIOS
+                  ? Icons.flip_camera_ios_outlined
+                  : Icons.flip_camera_android_outlined,
+              size: 25,
+            ),
+          ),
         ),
-      ),
-    ),
-  );
+      );
 
   Widget _zoomControl() => Positioned(
-    bottom: 16,
-    left: 0,
-    right: 0,
-    child: Align(
-      alignment: Alignment.bottomCenter,
-      child: SizedBox(
-        width: 250,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Slider(
-                value: _currentZoomLevel,
-                min: _minAvailableZoom,
-                max: _maxAvailableZoom,
-                activeColor: Colors.white,
-                inactiveColor: Colors.white30,
-                onChanged: (value) async {
-                  setState(() {
-                    _currentZoomLevel = value;
-                  });
-                  await _controller?.setZoomLevel(value);
-                },
-              ),
+        bottom: 16,
+        left: 0,
+        right: 0,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: SizedBox(
+            width: 250,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: _currentZoomLevel,
+                    min: _minAvailableZoom,
+                    max: _maxAvailableZoom,
+                    activeColor: Colors.white,
+                    inactiveColor: Colors.white30,
+                    onChanged: (value) async {
+                      setState(() {
+                        _currentZoomLevel = value;
+                      });
+                      await _controller?.setZoomLevel(value);
+                    },
+                  ),
+                ),
+                Container(
+                  width: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(10.0),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Center(
+                      child: Text(
+                        '${_currentZoomLevel.toStringAsFixed(1)}x',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            Container(
-              width: 50,
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Center(
-                  child: Text(
-                    '${_currentZoomLevel.toStringAsFixed(1)}x',
-                    style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+
+  Widget _exposureControl() => Positioned(
+        top: 40,
+        right: 8,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: 250),
+          child: Column(
+            children: [
+              Container(
+                width: 55,
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(10.0),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Center(
+                    child: Text(
+                      '${_currentExposureOffset.toStringAsFixed(1)}x',
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+              Expanded(
+                child: RotatedBox(
+                  quarterTurns: 3,
+                  child: SizedBox(
+                    height: 30,
+                    child: Slider(
+                      value: _currentExposureOffset,
+                      min: _minAvailableExposureOffset,
+                      max: _maxAvailableExposureOffset,
+                      activeColor: Colors.white,
+                      inactiveColor: Colors.white30,
+                      onChanged: (value) async {
+                        setState(() {
+                          _currentExposureOffset = value;
+                        });
+                        await _controller?.setExposureOffset(value);
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-    ),
-  );
-
-  Widget _exposureControl() => Positioned(
-    top: 40,
-    right: 8,
-    child: ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: 250),
-      child: Column(
-        children: [
-          Container(
-            width: 55,
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              borderRadius: BorderRadius.circular(10.0),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Center(
-                child: Text(
-                  '${_currentExposureOffset.toStringAsFixed(1)}x',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: RotatedBox(
-              quarterTurns: 3,
-              child: SizedBox(
-                height: 30,
-                child: Slider(
-                  value: _currentExposureOffset,
-                  min: _minAvailableExposureOffset,
-                  max: _maxAvailableExposureOffset,
-                  activeColor: Colors.white,
-                  inactiveColor: Colors.white30,
-                  onChanged: (value) async {
-                    setState(() {
-                      _currentExposureOffset = value;
-                    });
-                    await _controller?.setExposureOffset(value);
-                  },
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
+      );
 
   Future _startLiveFeed() async {
     final camera = _cameras[_cameraIndex];
     _controller = CameraController(
       camera,
-      // Set to ResolutionPreset.high. Do NOT set it to ResolutionPreset.max because for some phones does NOT work.
       ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid
           ? ImageFormatGroup.nv21
           : ImageFormatGroup.bgra8888,
     );
-    _controller?.initialize().then((_) {
-      if (!mounted) {
-        return;
-      }
-      _controller?.getMinZoomLevel().then((value) {
-        _currentZoomLevel = value;
-        _minAvailableZoom = value;
-      });
-      _controller?.getMaxZoomLevel().then((value) {
-        _maxAvailableZoom = value;
-      });
-      _currentExposureOffset = 0.0;
-      _controller?.getMinExposureOffset().then((value) {
-        _minAvailableExposureOffset = value;
-      });
-      _controller?.getMaxExposureOffset().then((value) {
-        _maxAvailableExposureOffset = value;
-      });
-      _controller?.startImageStream(_processCameraImage).then((value) {
-        if (widget.onCameraFeedReady != null) {
-          widget.onCameraFeedReady!();
-        }
-        if (widget.onCameraLensDirectionChanged != null) {
-          widget.onCameraLensDirectionChanged!(camera.lensDirection);
-        }
-      });
+
+    await _controller?.initialize();
+    if (!mounted) return;
+
+    _currentZoomLevel = await _controller!.getMinZoomLevel();
+    _minAvailableZoom = _currentZoomLevel;
+    _maxAvailableZoom = await _controller!.getMaxZoomLevel();
+    _currentExposureOffset = 0.0;
+    _minAvailableExposureOffset = await _controller!.getMinExposureOffset();
+    _maxAvailableExposureOffset = await _controller!.getMaxExposureOffset();
+
+    if (mounted) {
       setState(() {});
+    }
+
+    await _controller?.startImageStream((image) {
+      if (!mounted) return; // prevent crash after back
+      _processCameraImage(image);
     });
+
+    if (widget.onCameraFeedReady != null) widget.onCameraFeedReady!();
+    if (widget.onCameraLensDirectionChanged != null) {
+      widget.onCameraLensDirectionChanged!(camera.lensDirection);
+    }
   }
 
   Future _stopLiveFeed() async {
-    await _controller?.stopImageStream();
-    await _controller?.dispose();
-    _controller = null;
+    if (_controller != null) {
+      try {
+        if (_controller!.value.isStreamingImages) {
+          await _controller!.stopImageStream();
+        }
+      } catch (_) {}
+      await _controller!.dispose();
+      _controller = null;
+    }
   }
 
   Future _switchLiveCamera() async {
@@ -301,6 +301,7 @@ class _CameraViewState extends State<CameraView> {
   }
 
   void _processCameraImage(CameraImage image) {
+    if (!mounted) return;
     final inputImage = _inputImageFromCameraImage(image);
     if (inputImage == null) return;
     widget.onImage(inputImage);
@@ -316,12 +317,9 @@ class _CameraViewState extends State<CameraView> {
   InputImage? _inputImageFromCameraImage(CameraImage image) {
     if (_controller == null) return null;
 
-    // get image rotation
     final camera = _cameras[_cameraIndex];
     final sensorOrientation = camera.sensorOrientation;
-    // print(
-    //   '==>lensDirection: ${camera.lensDirection}, sensorOrientation: $sensorOrientation, ${_controller?.value.deviceOrientation} ${_controller?.value.lockedCaptureOrientation} ${_controller?.value.isCaptureOrientationLocked}',
-    // );
+
     InputImageRotation? rotation;
     if (Platform.isIOS) {
       rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
@@ -330,43 +328,32 @@ class _CameraViewState extends State<CameraView> {
           _orientations[_controller!.value.deviceOrientation];
       if (rotationCompensation == null) return null;
       if (camera.lensDirection == CameraLensDirection.front) {
-        // front-facing
         rotationCompensation = (sensorOrientation + rotationCompensation) % 360;
       } else {
-        // back-facing
         rotationCompensation =
             (sensorOrientation - rotationCompensation + 360) % 360;
       }
       rotation = InputImageRotationValue.fromRawValue(rotationCompensation);
-      // print('rotationCompensation: $rotationCompensation');
     }
     if (rotation == null) return null;
-    // print('final rotation: $rotation');
 
-    // get image format
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    // validate format depending on platform
-    // only supported formats:
-    // * nv21 for Android
-    // * bgra8888 for iOS
     if (format == null ||
         (Platform.isAndroid && format != InputImageFormat.nv21) ||
         (Platform.isIOS && format != InputImageFormat.bgra8888)) {
       return null;
     }
 
-    // since format is constraint to nv21 or bgra8888, both only have one plane
-    if (image.planes.length != 1) return null;
+    if (image.planes.isEmpty) return null;
     final plane = image.planes.first;
 
-    // compose InputImage using bytes
     return InputImage.fromBytes(
       bytes: plane.bytes,
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: rotation, // used only in Android
-        format: format, // used only in iOS
-        bytesPerRow: plane.bytesPerRow, // used only in iOS
+        rotation: rotation,
+        format: format,
+        bytesPerRow: plane.bytesPerRow,
       ),
     );
   }
