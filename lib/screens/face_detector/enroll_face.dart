@@ -15,7 +15,14 @@ class EnrollFaceScreen extends StatefulWidget {
 
 class _EnrollFaceScreenState extends State<EnrollFaceScreen> {
   final FaceDetector _faceDetector = FaceDetector(
-    options: FaceDetectorOptions(enableContours: false, enableLandmarks: false),
+    options: FaceDetectorOptions(
+      enableContours: false,
+      enableLandmarks: false,
+      enableClassification: false,
+      minFaceSize: 0.1, // Detect smaller faces (default: 0.1)
+      enableTracking: false, // Disable tracking for better detection
+      performanceMode: FaceDetectorMode.accurate, // More accurate detection
+    ),
   );
   late final FaceRecognitionHelper _recognitionHelper;
 

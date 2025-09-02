@@ -197,28 +197,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ? const Center(child: CircularProgressIndicator())
                             : _enrolledUsers.isEmpty
                             ? const Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.person_off,
-                                      size: 64,
-                                      color: Colors.grey,
-                                    ),
-                                    SizedBox(height: 16),
-                                    Text(
-                                      "No users enrolled yet",
-                                      style: TextStyle(
-                                        fontSize: 16,
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.person_off,
+                                        size: 64,
                                         color: Colors.grey,
                                       ),
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      "Start by enrolling a face above",
-                                      style: TextStyle(color: Colors.grey),
-                                    ),
-                                  ],
+                                      SizedBox(height: 16),
+                                      Text(
+                                        "No users enrolled yet",
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        "Start by enrolling a face above",
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               )
                             : ListView.builder(

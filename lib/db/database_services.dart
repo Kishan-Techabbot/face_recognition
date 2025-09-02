@@ -50,12 +50,30 @@ class FaceDatabaseService {
   }
 
   Future<int> insertUser(String name, List<double> embedding) async {
-    print("EMBWHILESTORING: $embedding");
+    print(
+      "EMBWHILESTORING: ${embedding.take(10).toList()}",
+    ); // Only show first 10 for readability
     try {
       final db = await database;
-      final embeddingBlob = Float32List.fromList(
-        embedding,
-      ).buffer.asUint8List();
+
+      // FIXED: Proper conversion using ByteData for consistent endianness
+      final byteData = ByteData(embedding.length * 4);
+      for (int i = 0; i < embedding.length; i++) {
+        byteData.setFloat32(i * 4, embedding[i], Endian.little);
+      }
+      final embeddingBlob = byteData.buffer.asUint8List();
+
+      print(
+        "BLOB: ${embeddingBlob.take(20).toList()}",
+      ); // Only show first 20 bytes
+
+      // Verify conversion by reading back
+      final verifyByteData = ByteData.sublistView(embeddingBlob);
+      final verifyFirst5 = <double>[];
+      for (int i = 0; i < 5 && i * 4 + 3 < embeddingBlob.length; i++) {
+        verifyFirst5.add(verifyByteData.getFloat32(i * 4, Endian.little));
+      }
+      print("VERIFY CONVERSION: $verifyFirst5");
 
       return await db.insert(usersTable, {
         'name': name.trim(),

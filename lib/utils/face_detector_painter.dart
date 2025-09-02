@@ -38,9 +38,8 @@ class FaceDetectorPainter extends CustomPainter {
 
     for (int i = 0; i < faces.length; i++) {
       final Face face = faces[i];
-      final String? recognizedName = recognizedNames[i];
-      final bool isRecognized =
-          recognizedName != null && recognizedName != "Unknown";
+      final String recognizedName = recognizedNames[i] ?? "Unknown";
+      final bool isRecognized = recognizedName != "Unknown";
 
       // Choose paint based on recognition status
       final Paint currentBoxPaint = isRecognized
@@ -80,7 +79,7 @@ class FaceDetectorPainter extends CustomPainter {
       canvas.drawRect(Rect.fromLTRB(left, top, right, bottom), currentBoxPaint);
 
       // Draw name label if recognized
-      if (recognizedName != null && recognizedName.isNotEmpty) {
+      if (recognizedName.isNotEmpty) {
         _drawNameLabel(
           canvas,
           recognizedName,

@@ -15,7 +15,14 @@ class FaceDetectorScreen extends StatefulWidget {
 
 class _FaceDetectorScreenState extends State<FaceDetectorScreen> {
   final FaceDetector _faceDetector = FaceDetector(
-    options: FaceDetectorOptions(enableContours: false, enableLandmarks: true),
+    options: FaceDetectorOptions(
+      enableContours: false,
+      enableLandmarks: false,
+      enableClassification: false,
+      minFaceSize: 0.1, // Detect smaller faces (default: 0.1)
+      enableTracking: false, // Disable tracking for better detection
+      performanceMode: FaceDetectorMode.accurate, // More accurate detection
+    ),
   );
   final FaceRecognitionHelper _recognitionHelper =
       FaceRecognitionHelper.instance;
@@ -79,34 +86,64 @@ class _FaceDetectorScreenState extends State<FaceDetectorScreen> {
       _currentFaces = faces;
       _recognizedNames.clear();
 
+      print("=== FACE DETECTION DEBUG ===");
+      for (int i = 0; i < faces.length; i++) {
+        print("Face $i bounding box: ${faces[i].boundingBox}");
+        print(
+          "Face $i head angles: Y=${faces[i].headEulerAngleY}, Z=${faces[i].headEulerAngleZ}",
+        );
+      }
+      print("=== END FACE DEBUG ===");
+
+      print("📷 Image size: ${inputImage.metadata?.size}");
+      print("📷 Image rotation: ${inputImage.metadata?.rotation}");
+      print("🔍 Total faces detected: ${faces.length}");
+
       if (faces.isNotEmpty) {
         String statusText = "Detected ${faces.length} face(s)\n";
 
         // Process each face for recognition
+        print("🔍 DETECTED FACES: ${faces.length}");
         for (int i = 0; i < faces.length; i++) {
-          final face = faces[i];
-          final embedding = await _recognitionHelper.getEmbedding(
-            inputImage,
-            face.boundingBox,
-          );
-          print("Emb: $embedding");
+          try {
+            final currentBoundingBox = faces[i].boundingBox;
+            print("PROCESSING Face $i with box: $currentBoundingBox");
 
-          if (embedding != null) {
-            final recognizedName = await _recognitionHelper.recognizeUser(
-              embedding,
-            );
-            _recognizedNames[i] = recognizedName ?? "Unknown";
-
-            if (recognizedName != null && recognizedName != "Unknown") {
-              statusText += "✅ $recognizedName\n";
-            } else {
-              statusText += "❓ Unknown person\n";
+            // Check if this bounding box is different from previous ones
+            for (int j = 0; j < i; j++) {
+              if (faces[j].boundingBox == currentBoundingBox) {
+                print("WARNING: Face $i has same bounding box as Face $j!");
+              }
             }
-          } else {
-            _recognizedNames[i] = "Processing...";
-            statusText += "⏳ Processing...\n";
+
+            final embedding = await _recognitionHelper.getEmbedding(
+              inputImage,
+              currentBoundingBox,
+            );
+
+            if (embedding != null) {
+              final recognizedName = await _recognitionHelper.recognizeUser(
+                embedding,
+              );
+              _recognizedNames[i] = recognizedName ?? "Unknown";
+
+              if (recognizedName != null && recognizedName != "Unknown") {
+                statusText += "✅ $recognizedName\n";
+              } else {
+                statusText += "❓ Unknown person\n";
+              }
+            } else {
+              _recognizedNames[i] = "Unknown";
+              statusText += "⚠️ Processing failed\n";
+            }
+          } catch (e) {
+            print("❌ Error processing face $i: $e");
+            _recognizedNames[i] = "Unknown";
+            statusText += "❌ Error processing face\n";
           }
         }
+
+        print("🗺️ FINAL _recognizedNames mapping: $_recognizedNames");
 
         _text = statusText.trim();
       } else {
