@@ -1,8 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
 import 'package:face_recognition/screens/face_detector/widget/detecter_view.dart';
 import 'package:face_recognition/screens/helper/face_detection_helper.dart';
-
-import 'package:face_recognition/utils/face_detector_painter.dart';
+import 'package:face_recognition/db/database_services.dart';
+import 'package:face_recognition/utils/enhance_face_detector_painter.dart';
 import 'package:flutter/material.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
 
@@ -19,9 +21,9 @@ class _FaceDetectorScreenState extends State<FaceDetectorScreen> {
       enableContours: false,
       enableLandmarks: false,
       enableClassification: false,
-      minFaceSize: 0.1, // Detect smaller faces (default: 0.1)
-      enableTracking: false, // Disable tracking for better detection
-      performanceMode: FaceDetectorMode.accurate, // More accurate detection
+      minFaceSize: 0.1,
+      enableTracking: false,
+      performanceMode: FaceDetectorMode.accurate,
     ),
   );
   final FaceRecognitionHelper _recognitionHelper =
@@ -32,8 +34,9 @@ class _FaceDetectorScreenState extends State<FaceDetectorScreen> {
   CustomPaint? _customPaint;
   String? _text;
   CameraLensDirection _cameraLensDirection = CameraLensDirection.front;
-  final Map<int, String> _recognizedNames = {}; // Face index -> Name mapping
+  final Map<int, String> _recognizedNames = {};
   List<Face> _currentFaces = [];
+  final Map<int, Map<String, dynamic>> _recognitionDetails = {};
 
   @override
   void initState() {
@@ -44,9 +47,13 @@ class _FaceDetectorScreenState extends State<FaceDetectorScreen> {
   Future<void> _initializeModel() async {
     try {
       await _recognitionHelper.loadModel();
+      final stats = await FaceDatabaseService.instance.getStatistics();
+
       if (mounted) {
         setState(() {
-          _text = "Model loaded. Ready to recognize faces!";
+          _text =
+              "Model loaded! Ready to recognize faces!\n"
+              "Database: ${stats['total_users']} users, ${stats['total_embeddings']} embeddings";
         });
       }
     } catch (e) {
@@ -85,91 +92,150 @@ class _FaceDetectorScreenState extends State<FaceDetectorScreen> {
       final faces = await _faceDetector.processImage(inputImage);
       _currentFaces = faces;
       _recognizedNames.clear();
-
-      print("=== FACE DETECTION DEBUG ===");
-      for (int i = 0; i < faces.length; i++) {
-        print("Face $i bounding box: ${faces[i].boundingBox}");
-        print(
-          "Face $i head angles: Y=${faces[i].headEulerAngleY}, Z=${faces[i].headEulerAngleZ}",
-        );
-      }
-      print("=== END FACE DEBUG ===");
-
-      print("📷 Image size: ${inputImage.metadata?.size}");
-      print("📷 Image rotation: ${inputImage.metadata?.rotation}");
-      print("🔍 Total faces detected: ${faces.length}");
+      _recognitionDetails.clear();
 
       if (faces.isNotEmpty) {
         String statusText = "Detected ${faces.length} face(s)\n";
 
-        // Process each face for recognition
-        print("🔍 DETECTED FACES: ${faces.length}");
+        // Step 1: Get embeddings for all faces
+        List<Map<String, dynamic>?> facesEmbeddings = [];
+        for (var face in faces) {
+          final embeddingData = await _recognitionHelper.getEmbeddingWithAngle(
+            inputImage,
+            face,
+          );
+          facesEmbeddings.add(embeddingData);
+        }
+
+        // Step 2: Prepare user distances per face
+        final users = await FaceDatabaseService.instance.getAllUsers();
+        Map<int, Map<String, double>> faceToUserDistances = {};
+
         for (int i = 0; i < faces.length; i++) {
-          try {
-            final currentBoundingBox = faces[i].boundingBox;
-            print("PROCESSING Face $i with box: $currentBoundingBox");
+          final embeddingData = facesEmbeddings[i];
+          if (embeddingData == null) continue;
 
-            // Check if this bounding box is different from previous ones
-            for (int j = 0; j < i; j++) {
-              if (faces[j].boundingBox == currentBoundingBox) {
-                print("WARNING: Face $i has same bounding box as Face $j!");
-              }
-            }
+          final embedding = embeddingData['embedding'] as List<double>;
+          faceToUserDistances[i] = {};
 
-            final embedding = await _recognitionHelper.getEmbedding(
-              inputImage,
-              currentBoundingBox,
-            );
+          for (var user in users) {
+            final userName = user['name'] as String;
+            final userEmbeddings = await FaceDatabaseService.instance
+                .getUserEmbeddings(userName);
 
-            if (embedding != null) {
-              final recognizedName = await _recognitionHelper.recognizeUser(
-                embedding,
+            double minDist = double.infinity;
+            for (var embeddingRecord in userEmbeddings) {
+              final storedEmbedding = _recognitionHelper.bytesToDoubleList(
+                embeddingRecord['embedding'] as Uint8List,
               );
-              _recognizedNames[i] = recognizedName ?? "Unknown";
-
-              if (recognizedName != null && recognizedName != "Unknown") {
-                statusText += "✅ $recognizedName\n";
-              } else {
-                statusText += "❓ Unknown person\n";
-              }
-            } else {
-              _recognizedNames[i] = "Unknown";
-              statusText += "⚠️ Processing failed\n";
+              final dist = _recognitionHelper.euclideanDistance(
+                embedding,
+                storedEmbedding,
+              );
+              if (dist < minDist) minDist = dist;
             }
-          } catch (e) {
-            print("❌ Error processing face $i: $e");
-            _recognizedNames[i] = "Unknown";
-            statusText += "❌ Error processing face\n";
+            faceToUserDistances[i]![userName] = minDist;
           }
         }
 
-        print("🗺️ FINAL _recognizedNames mapping: $_recognizedNames");
+        // Step 3: Assign best matches uniquely
+        Set<String> assignedUsers = {};
+        for (int i = 0; i < faces.length; i++) {
+          final embeddingData = facesEmbeddings[i];
+          if (embeddingData == null) {
+            _recognizedNames[i] = "Unknown";
+            _recognitionDetails[i] = {
+              'name': "Unknown",
+              'yaw': 0.0,
+              'pitch': 0.0,
+              'roll': 0.0,
+              'confidence': 'Low',
+            };
+            statusText += "⚠️ Processing failed\n";
+            continue;
+          }
+
+          final yaw = embeddingData['yaw'] as double;
+          final pitch = embeddingData['pitch'] as double;
+          final roll = embeddingData['roll'] as double;
+
+          String? bestUser;
+          double bestDist = double.infinity;
+
+          faceToUserDistances[i]!.forEach((userName, dist) {
+            if (dist < bestDist && !assignedUsers.contains(userName)) {
+              bestDist = dist;
+              bestUser = userName;
+            }
+          });
+
+          if (bestDist < FaceRecognitionHelper.recognitionThreshold &&
+              bestUser != null) {
+            assignedUsers.add(bestUser!);
+            _recognizedNames[i] = bestUser!;
+            _recognitionDetails[i] = {
+              'name': bestUser,
+              'yaw': yaw,
+              'pitch': pitch,
+              'roll': roll,
+              'confidence': 'High',
+            };
+
+            final userInfo = await _recognitionHelper.getUserInfo(bestUser!);
+            final embeddingCount = userInfo?['embedding_count'] ?? 0;
+            statusText += "✅ $bestUser ($embeddingCount poses)\n";
+            statusText += "📐 ${_formatAngle(yaw)}, ${_formatPitch(pitch)}\n";
+          } else {
+            _recognizedNames[i] = "Unknown";
+            _recognitionDetails[i] = {
+              'name': "Unknown",
+              'yaw': yaw,
+              'pitch': pitch,
+              'roll': roll,
+              'confidence': 'Medium',
+            };
+            statusText += "❓ Unknown person\n";
+            statusText += "📐 ${_formatAngle(yaw)}, ${_formatPitch(pitch)}\n";
+          }
+        }
 
         _text = statusText.trim();
       } else {
         _text = "No faces detected";
         _recognizedNames.clear();
+        _recognitionDetails.clear();
       }
 
-      // Update custom paint with face bounding boxes and names
       if (inputImage.metadata?.size != null &&
           inputImage.metadata?.rotation != null) {
         _customPaint = CustomPaint(
-          painter: FaceDetectorPainter(
+          painter: EnhancedFaceDetectorPainter(
             _currentFaces,
             inputImage.metadata!.size,
             inputImage.metadata!.rotation,
             _cameraLensDirection,
             recognizedNames: _recognizedNames,
+            recognitionDetails: _recognitionDetails,
           ),
         );
       }
     } catch (e) {
       _text = "Error processing image: $e";
-      print("FaceDetectorScreen Error: $e");
     }
 
     _isBusy = false;
     if (mounted) setState(() {});
+  }
+
+  String _formatAngle(double yaw) {
+    if (yaw > 15) return "Left turn";
+    if (yaw < -15) return "Right turn";
+    return "Straight";
+  }
+
+  String _formatPitch(double pitch) {
+    if (pitch < -15) return "Looking up";
+    if (pitch > 15) return "Looking down";
+    return "Level";
   }
 }
