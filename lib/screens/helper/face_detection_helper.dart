@@ -1,8 +1,9 @@
+import 'dart:developer';
 import 'dart:typed_data';
 
 import 'package:face_recognition/db/database_services.dart';
 import 'package:flutter/services.dart';
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:google_ml_kit/google_ml_kit.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'dart:math' as math;
@@ -19,8 +20,6 @@ class FaceRecognitionHelper {
 
   static const double recognitionThreshold = 0.7;
   static const double similarityThreshold = 0.6;
-  static const double marginThreshold =
-      0.2; // difference required between best & second-best
 
   /// Load TFLite model and DB
   Future<void> loadModel() async {
@@ -66,9 +65,9 @@ class FaceRecognitionHelper {
 
       // Enhanced logging
       final normalized = _normalize(embedding);
-      print('🧮 RAW EMBEDDING (first 5): ${embedding.take(5).toList()}');
-      print('🔄 NORMALIZED EMBEDDING (first 5): ${normalized.take(5).toList()}');
-      print('📏 Embedding length: ${normalized.length}');
+      log('🧮 RAW EMBEDDING (first 5): ${embedding.take(5).toList()}');
+      log('🔄 NORMALIZED EMBEDDING (first 5): ${normalized.take(5).toList()}');
+      log('📏 Embedding length: ${normalized.length}');
 
       return normalized;
     } catch (e) {
@@ -116,53 +115,33 @@ class FaceRecognitionHelper {
   Future<String?> _findSimilarFace(List<double> embedding) async {
     try {
       final users = await FaceDatabaseService.instance.getAllUsers();
-      print(
+      log(
         "🔍 DUPLICATE CHECK: Comparing against ${users.length} existing users",
       );
-
-      double bestDist = double.infinity;
-      double secondBestDist = double.infinity;
-      String? bestUser;
 
       for (var user in users) {
         final storedBytes = user['embedding'] as Uint8List;
         final storedEmbedding = _bytesToDoubleList(storedBytes);
         final userName = user['name'] as String;
 
+        log("👤 Checking against user: $userName");
+        log("📊 Stored (first 3): ${storedEmbedding.take(3).toList()}");
+        log("📊 Current (first 3): ${embedding.take(3).toList()}");
+
         final distance = _euclideanDistance(embedding, storedEmbedding);
+        log(
+          "📏 DUPLICATE CHECK DISTANCE: $distance (threshold: $similarityThreshold)",
+        );
 
-        print("👤 Checking against user: $userName");
-        print("📏 Distance to $userName: $distance");
-
-        if (distance < bestDist) {
-          secondBestDist = bestDist;
-          bestDist = distance;
-          bestUser = userName;
-        } else if (distance < secondBestDist) {
-          secondBestDist = distance;
+        if (distance < similarityThreshold) {
+          log(
+            "⚠️  DUPLICATE DETECTED: Distance $distance < $similarityThreshold",
+          );
+          return userName;
         }
       }
 
-      if (bestUser == null) {
-        print("✅ No users in database yet.");
-        return null;
-      }
-
-      final margin = secondBestDist - bestDist;
-
-      print("📊 DUPLICATE CHECK RESULT:");
-      print("    👤 Closest user: $bestUser");
-      print("    📏 Best distance: $bestDist");
-      print("    📏 Second-best distance: $secondBestDist");
-      print("    ➖ Margin: $margin");
-      print("    🎚️ Threshold: $similarityThreshold");
-
-      if (bestDist < similarityThreshold && margin > marginThreshold) {
-        print("⚠️ DUPLICATE DETECTED: $bestUser (distance: $bestDist)");
-        return bestUser;
-      }
-
-      print("✅ NO DUPLICATES FOUND");
+      log("✅ NO DUPLICATES FOUND");
       return null;
     } catch (e) {
       print("❌ Error finding similar face: $e");
@@ -175,36 +154,37 @@ class FaceRecognitionHelper {
     try {
       final users = await FaceDatabaseService.instance.getAllUsers();
       if (users.isEmpty) {
-        print("📝 No users in database");
+        log("📝 No users in database");
         return "Unknown";
       }
 
       // double minDist = double.infinity;
       // String? matchedUser;
+      const double marginThreshold = 0.2;
       double bestDist = double.infinity;
       double secondBestDist = double.infinity;
       String? bestUser;
 
-      print("🎯 RECOGNITION: Testing against ${users.length} users");
-      print("📊 Input embedding (first 3): ${embedding.take(3).toList()}");
+      log("🎯 RECOGNITION: Testing against ${users.length} users");
+      log("📊 Input embedding (first 3): ${embedding.take(3).toList()}");
 
       for (var user in users) {
         final storedBytes = user['embedding'] as Uint8List;
         final storedEmbedding = _bytesToDoubleList(storedBytes);
         final userName = user['name'] as String;
 
-        print("👤 Testing user: $userName");
-        print("📊 Stored (first 3): ${storedEmbedding.take(3).toList()}");
+        log("👤 Testing user: $userName");
+        log("📊 Stored (first 3): ${storedEmbedding.take(3).toList()}");
 
         final dist = _euclideanDistance(embedding, storedEmbedding);
-        print("📏 DISTANCE to $userName: $dist");
+        log("📏 DISTANCE to $userName: $dist");
 
         if (dist < bestDist) {
           // update best/second-best
           secondBestDist = bestDist;
           bestDist = dist;
           bestUser = user['name'] as String?;
-          print("[log] 🏆 NEW BEST MATCH: $bestUser (distance: $bestDist)");
+          log("[log] 🏆 NEW BEST MATCH: $bestUser (distance: $bestDist)");
         } else if (dist < secondBestDist) {
           secondBestDist = dist;
         }
@@ -212,18 +192,18 @@ class FaceRecognitionHelper {
 
       final margin = secondBestDist - bestDist;
 
-      print("[log] 🎯 FINAL RECOGNITION RESULT:");
-      print("[log]    👤 Best match: $bestUser");
-      print("[log]    📏 Best distance: $bestDist");
-      print("[log]    📏 Second-best distance: $secondBestDist");
-      print("[log]    ➖ Margin: $margin");
-      print("[log]    🎚️ Threshold: $recognitionThreshold");
+      log("[log] 🎯 FINAL RECOGNITION RESULT:");
+      log("[log]    👤 Best match: $bestUser");
+      log("[log]    📏 Best distance: $bestDist");
+      log("[log]    📏 Second-best distance: $secondBestDist");
+      log("[log]    ➖ Margin: $margin");
+      log("[log]    🎚️ Threshold: $recognitionThreshold");
 
       if (bestDist < recognitionThreshold && margin > marginThreshold) {
-        print("[log]    ✅ Match: true");
+        log("[log]    ✅ Match: true");
         return bestUser;
       } else {
-        print("    ❌ Match: false → UNKNOWN");
+        log("    ❌ Match: false → UNKNOWN");
         return "Unknown";
       }
     } catch (e) {
@@ -232,7 +212,7 @@ class FaceRecognitionHelper {
     }
   }
 
-  /// Proper conversion from Uint8List to List<double>
+  /// Proper conversion from Uint8List to Listdouble
   List<double> _bytesToDoubleList(Uint8List bytes) {
     final byteData = ByteData.sublistView(bytes);
     final List<double> result = [];
@@ -278,7 +258,7 @@ class FaceRecognitionHelper {
     sum = math.sqrt(sum);
 
     if (sum == 0 || sum.isNaN || sum.isInfinite) {
-      print("⚠️  WARNING: Invalid normalization sum: $sum");
+      log("⚠️  WARNING: Invalid normalization sum: $sum");
       return vector;
     }
 
@@ -290,7 +270,7 @@ class FaceRecognitionHelper {
       checkSum += v * v;
     }
     final magnitude = math.sqrt(checkSum);
-    print("✅ Normalized vector magnitude: $magnitude (should be ~1.0)");
+    log("✅ Normalized vector magnitude: $magnitude (should be ~1.0)");
 
     return normalized;
   }
@@ -298,7 +278,7 @@ class FaceRecognitionHelper {
   /// Enhanced Euclidean distance calculation
   double _euclideanDistance(List<double> e1, List<double> e2) {
     if (e1.length != e2.length) {
-      print("❌ LENGTH MISMATCH: e1=${e1.length}, e2=${e2.length}");
+      log("❌ LENGTH MISMATCH: e1=${e1.length}, e2=${e2.length}");
       return double.infinity;
     }
 
@@ -312,7 +292,7 @@ class FaceRecognitionHelper {
 
     // Validation
     if (distance.isNaN || distance.isInfinite) {
-      print("⚠️  WARNING: Invalid distance calculated: $distance");
+      log("⚠️  WARNING: Invalid distance calculated: $distance");
       return double.infinity;
     }
 
@@ -330,7 +310,7 @@ class FaceRecognitionHelper {
     final bytes = image.bytes!;
     img.Image baseImage;
 
-    print(
+    log(
       "Format: ${metadata.format}, Rotation: ${metadata.rotation}, Size: ${metadata.size}",
     );
 
@@ -432,6 +412,20 @@ class FaceRecognitionHelper {
       width: inputSize,
       height: inputSize,
     );
+
+    // final faceCrop = img.copyCrop(
+    //   baseImage,
+    //   faceRect.left.toInt(),
+    //   faceRect.top.toInt(),
+    //   faceRect.width.toInt(),
+    //   faceRect.height.toInt(),
+    // );
+
+    // final resized = img.copyResize(
+    //   faceCrop,
+    //   width: inputSize,
+    //   height: inputSize,
+    // );
 
     return List.generate(inputSize, (y) {
       return List.generate(inputSize, (x) {

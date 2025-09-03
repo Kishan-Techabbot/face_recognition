@@ -38,6 +38,7 @@ android {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.11.0")  // Add this line
     // Desugaring for Java 11
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 }

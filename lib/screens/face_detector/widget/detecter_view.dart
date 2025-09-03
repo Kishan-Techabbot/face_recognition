@@ -1,7 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:face_recognition/screens/face_detector/widget/camera_view.dart';
 import 'package:flutter/material.dart';
-import 'package:google_mlkit_commons/google_mlkit_commons.dart';
+import 'package:google_ml_kit/google_ml_kit.dart';
 
 enum DetectorViewMode { liveFeed, gallery }
 

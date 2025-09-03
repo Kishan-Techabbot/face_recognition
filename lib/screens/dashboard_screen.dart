@@ -1,4 +1,4 @@
-import 'package:face_recognition/screens/face_detector/enroll_face.dart';
+import 'package:face_recognition/screens/face_detector/enroll_face_with_capture.dart';
 import 'package:face_recognition/screens/face_detector/face_detector_screen.dart';
 import 'package:face_recognition/screens/helper/face_detection_helper.dart';
 import 'package:flutter/material.dart';
