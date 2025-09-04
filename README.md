@@ -1,16 +1,21 @@
-# face_recognition
+# Face Recognition Flutter App
 
-A new Flutter project.
+An offline face recognition application built with Flutter using MobileFaceNet TensorFlow Lite model.
 
-## Getting Started
+## Description
 
-This project is a starting point for a Flutter application.
+This Flutter app provides real-time face recognition capabilities without requiring an internet connection. It uses the MobileFaceNet model (.tflite) for efficient face detection and recognition on mobile devices.
 
-A few resources to get you started if this is your first Flutter project:
+## Features
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- Offline face recognition
+- Real-time camera detection
+- Face enrollment and matching
+- Cross-platform (Android & iOS)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Technologies Used
+
+- Flutter
+- MobileFaceNet (.tflite model)
+- tflite_flutter plugin
+- Camera plugin
