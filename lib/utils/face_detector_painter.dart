@@ -186,3 +186,7 @@ class FaceDetectorPainter extends CustomPainter {
         oldDelegate.recognizedNames != recognizedNames;
   }
 }
+
+
+
+

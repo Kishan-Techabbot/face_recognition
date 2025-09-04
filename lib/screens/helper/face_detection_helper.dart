@@ -21,6 +21,18 @@ class FaceRecognitionHelper {
   static const double recognitionThreshold = 0.7;
   static const double similarityThreshold = 0.6;
 
+  // Multi-angle enrollment settings
+  static const int maxEmbeddingsPerUser = 20;
+  static const double angleVariationThreshold =
+      12.0; // Minimum angle difference between embeddings
+  static const double minEmbeddingSeparation =
+      0.35; // require enough feature-space delta
+
+  // Pose-aware recognition weighting (small nudge toward closer pose)
+  static const double angleBiasWeight = 0.10; // 0..0.3 usually safe
+  static const double angleSigma =
+      25.0; // degrees, controls falloff for pose proximity
+
   /// Load TFLite model and DB
   Future<void> loadModel() async {
     if (_isModelLoaded) return;
@@ -34,21 +46,25 @@ class FaceRecognitionHelper {
       print("✅ Model loaded and DB initialized");
       print("📊 Recognition threshold: $recognitionThreshold");
       print("📊 Similarity threshold: $similarityThreshold");
+      print("🔄 Multi-angle: Max $maxEmbeddingsPerUser embeddings per user");
     } catch (e) {
       print("❌ Error loading model: $e");
       rethrow;
     }
   }
 
-  /// Extract embedding from face
-  Future<List<double>?> getEmbedding(InputImage image, Rect faceRect) async {
+  /// Extract embedding from face with angle information
+  Future<Map<String, dynamic>?> getEmbeddingWithAngle(
+    InputImage image,
+    Face face,
+  ) async {
     if (_interpreter == null) {
       print("❌ Model not loaded");
       return null;
     }
 
     try {
-      final bytes = await _imageToByteList(image, faceRect);
+      final bytes = await _imageToByteList(image, face.boundingBox);
       if (bytes.isEmpty) {
         print("❌ Failed to process image");
         return null;
@@ -62,18 +78,55 @@ class FaceRecognitionHelper {
 
       _interpreter!.run(input, output);
       final embedding = List<double>.from(output[0]);
-
-      // Enhanced logging
       final normalized = _normalize(embedding);
+
+      // Extract head pose angles (ML Kit axes)
+      final pitch = face.headEulerAngleX ?? 0.0; // Up/down
+      final yaw = face.headEulerAngleY ?? 0.0; // Left/right
+      final roll = face.headEulerAngleZ ?? 0.0; // Tilt
+
       log('🧮 RAW EMBEDDING (first 5): ${embedding.take(5).toList()}');
       log('🔄 NORMALIZED EMBEDDING (first 5): ${normalized.take(5).toList()}');
       log('📏 Embedding length: ${normalized.length}');
+      log('📐 Face angles - Yaw: $yaw, Pitch: $pitch, Roll: $roll');
 
-      return normalized;
+      return {
+        'embedding': normalized,
+        'yaw': yaw,
+        'pitch': pitch,
+        'roll': roll,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
     } catch (e) {
       print("❌ Error extracting embedding: $e");
       return null;
     }
+  }
+
+  /// Legacy method for backward compatibility
+  Future<List<double>?> getEmbedding(InputImage image, Rect faceRect) async {
+    // Create a dummy Face object for the new method
+    final face = _createDummyFace(faceRect);
+    final result = await getEmbeddingWithAngle(image, face);
+    return result?['embedding'];
+  }
+
+  /// Create dummy Face object when only bounding box is available
+  Face _createDummyFace(Rect boundingBox) {
+    // This is a workaround since Face constructor is not public
+    // In practice, you should pass the actual Face object
+    return Face(
+      boundingBox: boundingBox,
+      landmarks: {},
+      contours: {},
+      headEulerAngleX: 0.0,
+      headEulerAngleY: 0.0,
+      headEulerAngleZ: 0.0,
+      leftEyeOpenProbability: null,
+      rightEyeOpenProbability: null,
+      smilingProbability: null,
+      trackingId: null,
+    );
   }
 
   /// Check if user already exists (duplicate prevention)
@@ -89,46 +142,129 @@ class FaceRecognitionHelper {
     }
   }
 
-  /// Save embedding with enhanced duplicate detection
-  Future<String> saveUserEmbedding(String name, List<double> embedding) async {
+  /// Save embedding with multi-angle support
+  Future<String> saveUserEmbeddingMultiAngle(
+    String name,
+    Map<String, dynamic> embeddingData,
+  ) async {
     try {
-      // Check if user already exists by name
-      if (await userExists(name)) {
-        return "User '$name' already exists!";
+      final embedding = embeddingData['embedding'] as List<double>;
+      final yaw = (embeddingData['yaw'] as double?) ?? 0.0;
+      final pitch = (embeddingData['pitch'] as double?) ?? 0.0;
+      final roll = (embeddingData['roll'] as double?) ?? 0.0;
+
+      final existingUser = await FaceDatabaseService.instance.getUserByName(
+        name,
+      );
+
+      // If user exists, evaluate against their stored embeddings
+      if (existingUser != null) {
+        final existingEmbeddings = await FaceDatabaseService.instance
+            .getUserEmbeddings(name);
+
+        // Hard cap
+        if (existingEmbeddings.length >= maxEmbeddingsPerUser) {
+          return "Maximum embeddings ($maxEmbeddingsPerUser) already stored for '$name'.";
+        }
+
+        bool tooSimilarByPose = false;
+        bool tooSimilarByEmbedding = false;
+
+        for (var existing in existingEmbeddings) {
+          final storedBytes = existing['embedding'] as Uint8List;
+          final stored = bytesToDoubleList(storedBytes);
+
+          final existingYaw = (existing['yaw'] as num?)?.toDouble() ?? 0.0;
+          final existingPitch = (existing['pitch'] as num?)?.toDouble() ?? 0.0;
+
+          // Pose delta
+          final angleDiff = math.sqrt(
+            math.pow(yaw - existingYaw, 2) + math.pow(pitch - existingPitch, 2),
+          );
+          if (angleDiff < angleVariationThreshold) {
+            tooSimilarByPose = true;
+          }
+
+          // Feature-space delta
+          final dist = euclideanDistance(embedding, stored);
+          if (dist < minEmbeddingSeparation) {
+            tooSimilarByEmbedding = true;
+          }
+
+          if (tooSimilarByPose || tooSimilarByEmbedding) break;
+        }
+
+        if (tooSimilarByPose && tooSimilarByEmbedding) {
+          return "Similar pose & features already stored for '$name'. Try a more different angle.";
+        }
+        if (tooSimilarByPose) {
+          return "A similar angle is already stored for '$name'. Turn a bit more.";
+        }
+        if (tooSimilarByEmbedding) {
+          return "A very similar face sample already exists for '$name'. Try again.";
+        }
+
+        // Looks sufficiently new → save
+        await FaceDatabaseService.instance.insertUserEmbedding(
+          name,
+          embedding,
+          yaw,
+          pitch,
+          roll,
+        );
+        final total = existingEmbeddings.length + 1;
+        return "New angle added for '$name'! ($total/$maxEmbeddingsPerUser stored)";
       }
 
-      // Check if this face embedding is similar to any existing face
-      final existingSimilar = await _findSimilarFace(embedding);
-      if (existingSimilar != null) {
-        return "This face is already enrolled as '$existingSimilar'!";
+      // New user: ensure not already enrolled as someone else
+      final duplicateOf = await _findSimilarFaceMultiAngle(embedding);
+      if (duplicateOf != null) {
+        return "This face is already enrolled as '$duplicateOf'!";
       }
 
-      await FaceDatabaseService.instance.insertUser(name, embedding);
-      return "Face enrolled successfully for '$name'!";
+      await FaceDatabaseService.instance.insertUserEmbedding(
+        name,
+        embedding,
+        yaw,
+        pitch,
+        roll,
+      );
+      return "Face enrolled successfully for '$name'! (1/$maxEmbeddingsPerUser stored)";
     } catch (e) {
       print("❌ Error saving user embedding: $e");
       return "Error saving face: $e";
     }
   }
 
-  /// Enhanced similarity detection with better logging
-  Future<String?> _findSimilarFace(List<double> embedding) async {
+  /// Legacy method for backward compatibility
+  Future<String> saveUserEmbedding(String name, List<double> embedding) async {
+    final embeddingData = {
+      'embedding': embedding,
+      'yaw': 0.0,
+      'pitch': 0.0,
+      'roll': 0.0,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    return await saveUserEmbeddingMultiAngle(name, embeddingData);
+  }
+
+  /// Enhanced similarity detection with multiple embeddings
+  Future<String?> _findSimilarFaceMultiAngle(List<double> embedding) async {
     try {
-      final users = await FaceDatabaseService.instance.getAllUsers();
+      final allEmbeddings = await FaceDatabaseService.instance
+          .getAllEmbeddings();
       log(
-        "🔍 DUPLICATE CHECK: Comparing against ${users.length} existing users",
+        "🔍 DUPLICATE CHECK: Comparing against ${allEmbeddings.length} existing embeddings",
       );
 
-      for (var user in users) {
-        final storedBytes = user['embedding'] as Uint8List;
-        final storedEmbedding = _bytesToDoubleList(storedBytes);
-        final userName = user['name'] as String;
+      for (var embeddingRecord in allEmbeddings) {
+        final storedBytes = embeddingRecord['embedding'] as Uint8List;
+        final storedEmbedding = bytesToDoubleList(storedBytes);
+        final userName = embeddingRecord['name'] as String;
 
         log("👤 Checking against user: $userName");
-        log("📊 Stored (first 3): ${storedEmbedding.take(3).toList()}");
-        log("📊 Current (first 3): ${embedding.take(3).toList()}");
 
-        final distance = _euclideanDistance(embedding, storedEmbedding);
+        final distance = euclideanDistance(embedding, storedEmbedding);
         log(
           "📏 DUPLICATE CHECK DISTANCE: $distance (threshold: $similarityThreshold)",
         );
@@ -149,61 +285,41 @@ class FaceRecognitionHelper {
     }
   }
 
-  /// Enhanced face recognition with detailed logging
-  Future<String?> recognizeUser(List<double> embedding) async {
+  /// Legacy similarity detection
+  // Future<String?> _findSimilarFace(List<double> embedding) async {
+  //   return await _findSimilarFaceMultiAngle(embedding);
+  // }
+
+  /// Enhanced face recognition with multiple embeddings per user
+  Future<String?> recognizeUserMultiAngle(List<double> embedding) async {
     try {
       final users = await FaceDatabaseService.instance.getAllUsers();
-      if (users.isEmpty) {
-        log("📝 No users in database");
-        return "Unknown";
-      }
+      if (users.isEmpty) return "Unknown";
 
-      // double minDist = double.infinity;
-      // String? matchedUser;
-      const double marginThreshold = 0.2;
       double bestDist = double.infinity;
-      double secondBestDist = double.infinity;
       String? bestUser;
 
-      log("🎯 RECOGNITION: Testing against ${users.length} users");
-      log("📊 Input embedding (first 3): ${embedding.take(3).toList()}");
-
       for (var user in users) {
-        final storedBytes = user['embedding'] as Uint8List;
-        final storedEmbedding = _bytesToDoubleList(storedBytes);
         final userName = user['name'] as String;
+        final userEmbeddings = await FaceDatabaseService.instance
+            .getUserEmbeddings(userName);
 
-        log("👤 Testing user: $userName");
-        log("📊 Stored (first 3): ${storedEmbedding.take(3).toList()}");
+        for (var embeddingRecord in userEmbeddings) {
+          final storedBytes = embeddingRecord['embedding'] as Uint8List;
+          final storedEmbedding = bytesToDoubleList(storedBytes);
 
-        final dist = _euclideanDistance(embedding, storedEmbedding);
-        log("📏 DISTANCE to $userName: $dist");
+          final dist = euclideanDistance(embedding, storedEmbedding);
 
-        if (dist < bestDist) {
-          // update best/second-best
-          secondBestDist = bestDist;
-          bestDist = dist;
-          bestUser = user['name'] as String?;
-          log("[log] 🏆 NEW BEST MATCH: $bestUser (distance: $bestDist)");
-        } else if (dist < secondBestDist) {
-          secondBestDist = dist;
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestUser = userName;
+          }
         }
       }
 
-      final margin = secondBestDist - bestDist;
-
-      log("[log] 🎯 FINAL RECOGNITION RESULT:");
-      log("[log]    👤 Best match: $bestUser");
-      log("[log]    📏 Best distance: $bestDist");
-      log("[log]    📏 Second-best distance: $secondBestDist");
-      log("[log]    ➖ Margin: $margin");
-      log("[log]    🎚️ Threshold: $recognitionThreshold");
-
-      if (bestDist < recognitionThreshold && margin > marginThreshold) {
-        log("[log]    ✅ Match: true");
+      if (bestDist < recognitionThreshold) {
         return bestUser;
       } else {
-        log("    ❌ Match: false → UNKNOWN");
         return "Unknown";
       }
     } catch (e) {
@@ -212,8 +328,57 @@ class FaceRecognitionHelper {
     }
   }
 
+  /// Legacy recognition method for backward compatibility
+  Future<String?> recognizeUser(List<double> embedding) async {
+    return await recognizeUserMultiAngle(embedding);
+  }
+
+  /// Get user embedding count
+  Future<int> getUserEmbeddingCount(String name) async {
+    try {
+      final embeddings = await FaceDatabaseService.instance.getUserEmbeddings(
+        name,
+      );
+      return embeddings.length;
+    } catch (e) {
+      print("❌ Error getting user embedding count: $e");
+      return 0;
+    }
+  }
+
+  /// Get detailed user info with embedding count
+  Future<Map<String, dynamic>?> getUserInfo(String name) async {
+    try {
+      final user = await FaceDatabaseService.instance.getUserByName(name);
+      if (user == null) return null;
+
+      final embeddings = await FaceDatabaseService.instance.getUserEmbeddings(
+        name,
+      );
+
+      return {
+        'name': user['name'],
+        'embedding_count': embeddings.length,
+        'max_embeddings': maxEmbeddingsPerUser,
+        'can_add_more': embeddings.length < maxEmbeddingsPerUser,
+        'angles': embeddings
+            .map(
+              (e) => {
+                'yaw': e['yaw'] ?? 0.0,
+                'pitch': e['pitch'] ?? 0.0,
+                'roll': e['roll'] ?? 0.0,
+              },
+            )
+            .toList(),
+      };
+    } catch (e) {
+      print("❌ Error getting user info: $e");
+      return null;
+    }
+  }
+
   /// Proper conversion from Uint8List to Listdouble
-  List<double> _bytesToDoubleList(Uint8List bytes) {
+  List<double> bytesToDoubleList(Uint8List bytes) {
     final byteData = ByteData.sublistView(bytes);
     final List<double> result = [];
 
@@ -227,7 +392,28 @@ class FaceRecognitionHelper {
     return result;
   }
 
-  /// Get all enrolled users
+  /// Get all enrolled users with embedding counts
+  Future<List<Map<String, dynamic>>> getAllEnrolledUsersDetailed() async {
+    try {
+      final users = await FaceDatabaseService.instance.getAllUsers();
+      List<Map<String, dynamic>> result = [];
+
+      for (var user in users) {
+        final userName = user['name'] as String;
+        final info = await getUserInfo(userName);
+        if (info != null) {
+          result.add(info);
+        }
+      }
+
+      return result;
+    } catch (e) {
+      print("❌ Error getting detailed users: $e");
+      return [];
+    }
+  }
+
+  /// Legacy method for backward compatibility
   Future<List<String>> getAllEnrolledUsers() async {
     try {
       final users = await FaceDatabaseService.instance.getAllUsers();
@@ -238,7 +424,7 @@ class FaceRecognitionHelper {
     }
   }
 
-  /// Delete a user
+  /// Delete a user and all their embeddings
   Future<bool> deleteUser(String name) async {
     try {
       final result = await FaceDatabaseService.instance.deleteUser(name);
@@ -276,7 +462,7 @@ class FaceRecognitionHelper {
   }
 
   /// Enhanced Euclidean distance calculation
-  double _euclideanDistance(List<double> e1, List<double> e2) {
+  double euclideanDistance(List<double> e1, List<double> e2) {
     if (e1.length != e2.length) {
       log("❌ LENGTH MISMATCH: e1=${e1.length}, e2=${e2.length}");
       return double.infinity;
@@ -412,20 +598,6 @@ class FaceRecognitionHelper {
       width: inputSize,
       height: inputSize,
     );
-
-    // final faceCrop = img.copyCrop(
-    //   baseImage,
-    //   faceRect.left.toInt(),
-    //   faceRect.top.toInt(),
-    //   faceRect.width.toInt(),
-    //   faceRect.height.toInt(),
-    // );
-
-    // final resized = img.copyResize(
-    //   faceCrop,
-    //   width: inputSize,
-    //   height: inputSize,
-    // );
 
     return List.generate(inputSize, (y) {
       return List.generate(inputSize, (x) {
